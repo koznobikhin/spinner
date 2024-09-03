@@ -10,7 +10,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/dominicegginton/Nanoseconds", from: "1.1.3"),
         .package(url: "https://github.com/onevcat/Rainbow", from: "4.0.0"),
-        .package(url: "https://github.com/IBM-Swift/BlueSignals.git", from: "1.0.0")
+        .package(url: "https://github.com/IBM-Swift/BlueSignals.git", from: "2.0.0")
     ],
     targets: [
         .target(name: "Spinner", dependencies: ["Nanoseconds", "Rainbow", .product(name: "Signals", package: "BlueSignals")]),
