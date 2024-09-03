@@ -3,26 +3,6 @@ import Dispatch
 import Rainbow
 import Signals
 
-enum Terminal {
-    static func CSI(_ code: String) -> String {
-        "\u{001B}[\(code)"
-    }
-
-    static func eraseInLine(_ value: Int) -> String {
-        CSI("\(value)K")
-    }
-
-    enum Cursor {
-        static let hide = CSI("?25l")
-        static let show = CSI("?25h")
-
-        static func horizontalAbsolute(_ value: Int) -> String {
-            let value = max(1, value)
-            return CSI("\(value)G")
-        }
-    }
-}
-
 struct StdOutSpinnerStream: SpinnerStream {
     func write(string: String, terminator: String) {
         print(string, terminator: terminator)
@@ -56,15 +36,16 @@ public final class Spinner {
         }
     }
     var message: String
-    var status: Bool
     var color: Color
     var speed: Double
     var format: String
     let stream: SpinnerStream
 
-    var frameIndex: Int
-    var queue: DispatchQueue
-    var timestamp: ContinuousClock.Instant?
+    private var frameIndex: Int
+    private let queue = DispatchQueue(label: "io.Swift.Spinner", target: .global(qos: .userInteractive))
+    private var timestamp: ContinuousClock.Instant?
+
+    private(set) var isRunning: Bool
 
     /**
     Initialize spinner
@@ -93,8 +74,7 @@ public final class Spinner {
         self.stream = stream ?? StdOutSpinnerStream()
 
         self.frameIndex = 0
-        self.status = false
-        self.queue = DispatchQueue(label: "io.Swift.Spinner")
+        self.isRunning = false
         if let signal = signal {
             signal.trap()
         }
@@ -107,8 +87,9 @@ public final class Spinner {
     Start the spinner
     */
     public func start() {
+        guard !isRunning else { return }
         self.stream.hideCursor()
-        self.status = true
+        self.isRunning = true
         self.timestamp = ContinuousClock.now
         self.queue.async { [weak self] in
             self?.renderCycle()
@@ -124,19 +105,18 @@ public final class Spinner {
     */
     public func stop(frame: String? = nil, message: String? = nil, color: Color? = nil, terminator: String = "\n") {
         self.queue.sync {
-            self.status = false
+            self.isRunning = false
             if let message = message {
-                self.message(message)
+                self.message = message
             }
             if let color = color {
-                self.color(color)
+                self.color = color
             }
             var animation: SpinnerAnimation?
             if let frame = frame {
                 animation = SpinnerAnimation(frame: frame)
             }
             if let animation = animation {
-                self.message += Array(repeating: " ", count: self.padding(animation))
                 self.animation = animation
             }
             self.render()
@@ -149,8 +129,8 @@ public final class Spinner {
     Update spinner animation
     - Parameter animation: spinner animation
     */
+    @available(*, deprecated, message: "use Spinner.animation property")
     public func animation(_ animation: SpinnerAnimation) {
-        self.format += Array(repeating: " ", count: self.padding(animation))
         self.animation = animation
     }
 
@@ -158,8 +138,8 @@ public final class Spinner {
     Update spinner message
     - Parameter message: message to render
     */
+    @available(*, deprecated, message: "use Spinner.message property")
     public func message(_ message: String) {
-        self.format += Array(repeating: " ", count: self.padding(message))
         self.message = message
     }
 
@@ -167,6 +147,7 @@ public final class Spinner {
     Update spinner animation speed
     - Parameter speed: speed of spinner animation
     */
+    @available(*, deprecated, message: "use Spinner.speed property")
     public func speed(_ speed: Double) {
         self.speed = speed
     }
@@ -175,6 +156,7 @@ public final class Spinner {
     Update spinner animation color
     - Parameter color: spinner animation color
     */
+    @available(*, deprecated, message: "use Spinner.color property")
     public func color(_ color: Color) {
         self.color = color
     }
@@ -183,6 +165,7 @@ public final class Spinner {
     Update spinner format
     - Parameter format: spinner format
     */
+    @available(*, deprecated, message: "use Spinner.format property")
     public func format(_ format: String) {
         self.format = format
     }
@@ -235,35 +218,6 @@ public final class Spinner {
         }
     }
 
-    private func entryLength(entry: Rainbow.Entry) -> Int {
-      if let segment = entry.segments.first {
-        return segment.text.count
-      }
-      return 0
-    }
-
-    private func padding(_ message: String) -> Int {
-        let new = entryLength(entry: Rainbow.extractEntry(for: message))
-        let old = entryLength(entry: Rainbow.extractEntry(for: self.message))
-        let diff: Int = old - new
-        if diff > 0 {
-            return diff
-        } else {
-            return 0
-        }
-    }
-
-    private func padding(_ animation: SpinnerAnimation) -> Int {
-        let new = entryLength(entry: Rainbow.extractEntry(for: animation.frames[0]))
-        let old = entryLength(entry: Rainbow.extractEntry(for: self.animation.frames[0]))
-        let diff: Int = old - new
-        if diff > 0 {
-            return diff
-        } else {
-            return 0
-        }
-    }
-
     private func frame() -> String {
         let frame = self.animation.frames[self.frameIndex].applyingCodes(self.color)
         self.frameIndex = (self.frameIndex + 1) % self.animation.frames.count
@@ -271,8 +225,10 @@ public final class Spinner {
     }
 
     private func render() {
-        var spinner = self.format.replacingOccurrences(of: "{S}", with: self.frame()).replacingOccurrences(of: "{T}", with: self.message)
-        if let timestamp = self.timestamp {
+        var spinner = self.format
+            .replacingOccurrences(of: "{S}", with: self.frame())
+            .replacingOccurrences(of: "{T}", with: self.message)
+        if let timestamp {
             let duration = ContinuousClock.now - timestamp
             spinner = spinner.replacingOccurrences(of: "{D}", with: duration.formatted(.units(width: .narrow)))
         }
@@ -281,12 +237,12 @@ public final class Spinner {
     }
 
     private func clearLine() {
-        let clearLine = Terminal.Cursor.horizontalAbsolute(1) + Terminal.eraseInLine(2)
+        let clearLine = Terminal.Cursor.horizontalAbsolute(1) + Terminal.eraseLine()
         stream.write(string: clearLine, terminator: "")
     }
 
     private func renderCycle() {
-        guard self.status else { return }
+        guard self.isRunning else { return }
         self.render()
         self.queue.asyncAfter(deadline: .now() + self.speed) { [weak self] in
             self?.renderCycle()
