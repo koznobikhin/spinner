@@ -57,7 +57,15 @@ public final class Spinner {
     - Parameter stream: output steam for spinner
     - Parameter signal: signal trap implementation for spinner
     */
-    public init(_ animation: SpinnerAnimation, _ message: String = "", color: Color = .default, speed: Double? = nil, format: String = "{S} {T}", stream: SpinnerStream? = nil, signal: SpinnerSignal? = nil) {
+    public init(
+        _ animation: SpinnerAnimation,
+        _ message: String = "",
+        color: Color = .default,
+        speed: Double? = nil,
+        format: String = "{S} {T}",
+        stream: SpinnerStream? = nil,
+        signal: SpinnerSignal? = nil
+    ) {
         self.animation = animation
         self.message = message
         self.color = color

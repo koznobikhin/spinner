@@ -1,8 +1,9 @@
-// swift-tools-version:5.0
+// swift-tools-version:5.9
 import PackageDescription
 
 let package = Package(
     name: "Spinner",
+    platforms: [.macOS(.v13)],
     products: [
         .library(name: "Spinner", targets: ["Spinner"])
     ],
@@ -13,6 +14,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "Spinner", dependencies: ["Nanoseconds", "Rainbow", .product(name: "Signals", package: "BlueSignals")]),
-        .target(name: "Example", dependencies: ["Spinner"]),
+        .testTarget(name: "SpinnerTests", dependencies: ["Spinner"]),
+        .executableTarget(name: "Example", dependencies: ["Spinner"]),
     ]
 )
