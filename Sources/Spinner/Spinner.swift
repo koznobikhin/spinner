@@ -1,6 +1,5 @@
 import Foundation
 import Dispatch
-import Nanoseconds
 import Rainbow
 import Signals
 
@@ -45,7 +44,7 @@ public final class Spinner {
 
     var frameIndex: Int
     var queue: DispatchQueue
-    var timestamp: Now?
+    var timestamp: ContinuousClock.Instant?
 
     /**
     Initialize spinner
@@ -90,7 +89,7 @@ public final class Spinner {
     public func start() {
         self.stream.hideCursor()
         self.status = true
-        self.timestamp = Now()
+        self.timestamp = ContinuousClock.now
         self.queue.async { [weak self] in
             guard let `self` = self else { return }
             while self.status {
@@ -247,8 +246,8 @@ public final class Spinner {
     func render() {
         var spinner = self.format.replacingOccurrences(of: "{S}", with: self.frame()).replacingOccurrences(of: "{T}", with: self.message)
         if let timestamp = self.timestamp {
-            let duration = Now() - timestamp
-            spinner = spinner.replacingOccurrences(of: "{D}", with: duration.timeString)
+            let duration = ContinuousClock.now - timestamp
+            spinner = spinner.replacingOccurrences(of: "{D}", with: duration.formatted(.units(width: .narrow)))
         }
         stream.write(string: "\r", terminator: "")
         stream.write(string: spinner, terminator: "")

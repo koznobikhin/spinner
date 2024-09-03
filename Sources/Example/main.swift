@@ -1,7 +1,7 @@
 import Foundation
 import Spinner
 
-let spinner = Spinner(.dots, "foo bar baz")
+let spinner = Spinner(.dots, "foo bar baz", format: "{S} {T} {D}")
 spinner.start()
-sleep(2) // do work
+sleep(5) // do work
 spinner.stop()
