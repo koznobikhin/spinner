@@ -235,7 +235,7 @@ In order to handle process interrupts (for example, SIGINT through <kbd>ctrl</kb
 ``` swift
 struct CustomSpinnerSignal: SpinnerSignal {
     func trap() {
-        Signals.trap(signal: .int) { _ in
+        SignalWatch.shared.on(signal: .int) { _ in
             // print("\u{001B}[?25h", terminator: "")
             // exit(0)
         }
