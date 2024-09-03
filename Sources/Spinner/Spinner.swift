@@ -23,7 +23,7 @@ struct StdOutSpinnerStream: SpinnerStream {
 struct DefaultSpinnerSignal: SpinnerSignal {
     func trap() {
         SignalWatch.shared.on(signal: .int) { _ in
-            print(Terminal.Cursor.hide, terminator: "")
+            print(Terminal.Cursor.show, terminator: "")
             exit(0)
         }
     }
