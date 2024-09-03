@@ -14,6 +14,6 @@ let package = Package(
     targets: [
         .target(name: "Spinner", dependencies: ["Rainbow", .product(name: "Signals", package: "BlueSignals")]),
         .testTarget(name: "SpinnerTests", dependencies: ["Spinner"]),
-        .executableTarget(name: "Example", dependencies: ["Spinner"]),
+        .executableTarget(name: "Example", dependencies: ["Spinner", "Rainbow"]),
     ]
 )
