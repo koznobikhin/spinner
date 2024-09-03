@@ -10,12 +10,12 @@ struct StdOutSpinnerStream: SpinnerStream {
     }
 
     func hideCursor() {
-        print("\u{001B}[?25l", terminator: "")
+        print(Terminal.Cursor.hide, terminator: "")
         fflush(stdout)
     }
 
     func showCursor() {
-        print("\u{001B}[?25h", terminator: "")
+        print(Terminal.Cursor.show, terminator: "")
         fflush(stdout)
     }
 }
@@ -23,7 +23,7 @@ struct StdOutSpinnerStream: SpinnerStream {
 struct DefaultSpinnerSignal: SpinnerSignal {
     func trap() {
         SignalWatch.shared.on(signal: .int) { _ in
-            print("\u{001B}[?25h", terminator: "")
+            print(Terminal.Cursor.show, terminator: "")
             exit(0)
         }
     }
@@ -36,15 +36,16 @@ public final class Spinner {
         }
     }
     var message: String
-    var status: Bool
     var color: Color
     var speed: Double
     var format: String
     let stream: SpinnerStream
 
-    var frameIndex: Int
-    var queue: DispatchQueue
-    var timestamp: ContinuousClock.Instant?
+    private var frameIndex: Int
+    private let queue = DispatchQueue(label: "io.Swift.Spinner", target: .global(qos: .userInteractive))
+    private var timestamp: ContinuousClock.Instant?
+
+    private(set) var isRunning: Bool
 
     /**
     Initialize spinner
@@ -73,8 +74,7 @@ public final class Spinner {
         self.stream = stream ?? StdOutSpinnerStream()
 
         self.frameIndex = 0
-        self.status = false
-        self.queue = DispatchQueue(label: "io.Swift.Spinner")
+        self.isRunning = false
         if let signal = signal {
             signal.trap()
         }
@@ -87,15 +87,12 @@ public final class Spinner {
     Start the spinner
     */
     public func start() {
+        guard !isRunning else { return }
         self.stream.hideCursor()
-        self.status = true
+        self.isRunning = true
         self.timestamp = ContinuousClock.now
         self.queue.async { [weak self] in
-            guard let `self` = self else { return }
-            while self.status {
-                self.render()
-                usleep(useconds_t(self.speed * 1_000_000))
-            }
+            self?.renderCycle()
         }
     }
 
@@ -107,32 +104,33 @@ public final class Spinner {
     - Parameter terminator: the string to print after all items have been printed
     */
     public func stop(frame: String? = nil, message: String? = nil, color: Color? = nil, terminator: String = "\n") {
-        self.status = false
-        if let message = message {
-            self.message(message)
+        self.queue.sync {
+            self.isRunning = false
+            if let message = message {
+                self.message = message
+            }
+            if let color = color {
+                self.color = color
+            }
+            var animation: SpinnerAnimation?
+            if let frame = frame {
+                animation = SpinnerAnimation(frame: frame)
+            }
+            if let animation = animation {
+                self.animation = animation
+            }
+            self.render()
+            self.stream.write(string: "", terminator: terminator)
+            self.stream.showCursor()
         }
-        if let color = color {
-            self.color(color)
-        }
-        var animation: SpinnerAnimation?
-        if let frame = frame {
-            animation = SpinnerAnimation(frame: frame)
-        }
-        if let animation = animation {
-            self.message += Array(repeating: " ", count: self.padding(animation))
-            self.animation = animation
-        }
-        self.render()
-        self.stream.write(string: "", terminator: terminator)
-        self.stream.showCursor()
     }
 
     /**
     Update spinner animation
     - Parameter animation: spinner animation
     */
+    @available(*, deprecated, message: "use Spinner.animation property")
     public func animation(_ animation: SpinnerAnimation) {
-        self.format += Array(repeating: " ", count: self.padding(animation))
         self.animation = animation
     }
 
@@ -140,8 +138,8 @@ public final class Spinner {
     Update spinner message
     - Parameter message: message to render
     */
+    @available(*, deprecated, message: "use Spinner.message property")
     public func message(_ message: String) {
-        self.format += Array(repeating: " ", count: self.padding(message))
         self.message = message
     }
 
@@ -149,6 +147,7 @@ public final class Spinner {
     Update spinner animation speed
     - Parameter speed: speed of spinner animation
     */
+    @available(*, deprecated, message: "use Spinner.speed property")
     public func speed(_ speed: Double) {
         self.speed = speed
     }
@@ -157,6 +156,7 @@ public final class Spinner {
     Update spinner animation color
     - Parameter color: spinner animation color
     */
+    @available(*, deprecated, message: "use Spinner.color property")
     public func color(_ color: Color) {
         self.color = color
     }
@@ -165,6 +165,7 @@ public final class Spinner {
     Update spinner format
     - Parameter format: spinner format
     */
+    @available(*, deprecated, message: "use Spinner.format property")
     public func format(_ format: String) {
         self.format = format
     }
@@ -207,49 +208,44 @@ public final class Spinner {
     public func info(_ message: String? = nil) {
         self.stop(frame: "ℹ", message: message, color: .blue)
     }
-
-    func entryLength(entry: Rainbow.Entry) -> Int {
-      if let segment = entry.segments.first {
-        return segment.text.count
-      }
-      return 0
-    }
-
-    func padding(_ message: String) -> Int {
-        let new = entryLength(entry: Rainbow.extractEntry(for: message))
-        let old = entryLength(entry: Rainbow.extractEntry(for: self.message))
-        let diff: Int = old - new
-        if diff > 0 {
-            return diff
-        } else {
-            return 0
+    
+    /// Outputs message on top of the spinner
+    /// - Parameter message: the message to output
+    public func log(_ message: String) {
+        self.queue.sync {
+            clearLine()
+            stream.write(string: message, terminator: "\n")
         }
     }
 
-    func padding(_ animation: SpinnerAnimation) -> Int {
-        let new = entryLength(entry: Rainbow.extractEntry(for: animation.frames[0]))
-        let old = entryLength(entry: Rainbow.extractEntry(for: self.animation.frames[0]))
-        let diff: Int = old - new
-        if diff > 0 {
-            return diff
-        } else {
-            return 0
-        }
-    }
-
-    func frame() -> String {
+    private func frame() -> String {
         let frame = self.animation.frames[self.frameIndex].applyingCodes(self.color)
         self.frameIndex = (self.frameIndex + 1) % self.animation.frames.count
         return frame
     }
 
-    func render() {
-        var spinner = self.format.replacingOccurrences(of: "{S}", with: self.frame()).replacingOccurrences(of: "{T}", with: self.message)
-        if let timestamp = self.timestamp {
+    private func render() {
+        var spinner = self.format
+            .replacingOccurrences(of: "{S}", with: self.frame())
+            .replacingOccurrences(of: "{T}", with: self.message)
+        if let timestamp {
             let duration = ContinuousClock.now - timestamp
             spinner = spinner.replacingOccurrences(of: "{D}", with: duration.formatted(.units(width: .narrow)))
         }
-        stream.write(string: "\r", terminator: "")
+        clearLine()
         stream.write(string: spinner, terminator: "")
+    }
+
+    private func clearLine() {
+        let clearLine = Terminal.Cursor.horizontalAbsolute(1) + Terminal.eraseLine()
+        stream.write(string: clearLine, terminator: "")
+    }
+
+    private func renderCycle() {
+        guard self.isRunning else { return }
+        self.render()
+        self.queue.asyncAfter(deadline: .now() + self.speed) { [weak self] in
+            self?.renderCycle()
+        }
     }
 }
